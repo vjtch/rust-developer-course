@@ -13,7 +13,7 @@ enum Transformation {
 }
 
 impl Transformation {
-    fn from(string: &str) -> Result<Transformation, String> {
+    fn from_str(string: &str) -> Result<Self, &'static str> {
         match string {
             "lowercase" => Ok(Transformation::Lowercase),
             "uppercase" => Ok(Transformation::Uppercase),
@@ -21,9 +21,7 @@ impl Transformation {
             "slugify" => Ok(Transformation::Slugify),
             "reverse" => Ok(Transformation::Reverse),
             "sha256" => Ok(Transformation::Sha256),
-            _ => Err(String::from(
-                "lowercase | uppercase | no-spaces | slugify | reverse | sha256",
-            )),
+            _ => Err("lowercase | uppercase | no-spaces | slugify | reverse | sha256"),
         }
     }
 
@@ -48,7 +46,7 @@ fn main() {
     }
 
     let transformation =
-        Transformation::from(&args[1].as_str()).expect("Invalid transformation name");
+        Transformation::from_str(&args[1].as_str()).expect("Invalid transformation name");
 
     let mut input = String::new();
 
