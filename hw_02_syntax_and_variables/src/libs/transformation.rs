@@ -1,95 +1,174 @@
-use crate::libs::transformation::convertors::convertors::{
-    to_csv, to_csv_cli_table_crate, to_lowercase, to_no_spaces, to_reverse, to_sha256, to_slugify,
-    to_uppercase,
+#[allow(unused_imports)]
+use super::convertors::{
+    remove_new_line, to_csv, to_csv_cli_table_crate, to_lowercase, to_no_spaces, to_reverse,
+    to_sha256, to_slugify, to_uppercase,
 };
+use super::transformation_builder::TransformationBuilder;
+use super::transformation_input::TransformationInput;
+use super::transformation_type::TransformationType;
 use std::error::Error;
-use std::io;
+use std::str::FromStr;
+use std::{io, thread};
 
-mod convertors;
-
-pub enum Transformation {
-    Lowercase,
-    Uppercase,
-    NoSpaces,
-    Slugify,
-    Reverse,
-    Sha256,
-    Csv,
-}
-
-enum TransformationInput {
-    StringInput(String),
-    CsvReaderInput(csv::Reader<std::io::Stdin>),
+pub struct Transformation {
+    pub transformation: TransformationType,
+    pub input: TransformationInput,
 }
 
 impl Transformation {
-    pub fn from_str(string: &str) -> Result<Self, &'static str> {
-        match string {
-            "lowercase" => Ok(Transformation::Lowercase),
-            "uppercase" => Ok(Transformation::Uppercase),
-            "no-spaces" => Ok(Transformation::NoSpaces),
-            "slugify" => Ok(Transformation::Slugify),
-            "reverse" => Ok(Transformation::Reverse),
-            "sha256" => Ok(Transformation::Sha256),
-            "csv" => Ok(Transformation::Csv),
-            _ => Err("Invalid transformation name. Valid options: lowercase | uppercase | no-spaces | slugify | reverse | sha256 | csv."),
+    pub fn run() -> Result<(), Box<dyn Error>> {
+        let (tx, rx) = flume::unbounded::<Transformation>();
+
+        let input_handle = thread::spawn(move || loop {
+            // read line from stdin
+            let mut buffer = String::new();
+            match io::stdin().read_line(&mut buffer) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Could not read line.");
+                    eprintln!("{}", e.to_string());
+                    continue;
+                }
+            }
+
+            remove_new_line(&mut buffer);
+
+            // exit command ends this thread
+            if buffer.eq("exit") {
+                return;
+            }
+
+            // split line into command and input parts
+            let mut parts = buffer.split(' ');
+
+            let command = match parts.next() {
+                Some(s) => s,
+                None => {
+                    eprintln!("Could not parse <command>.");
+                    continue;
+                }
+            };
+
+            let input = match parts.next() {
+                Some(s) => s,
+                None => {
+                    eprintln!("Could not parse <input>.");
+                    continue;
+                }
+            };
+
+            // if valid command create Transformation object and send it to channel
+            // if can not send into channel exit thread
+            // if any other error print error message and continue
+            match TransformationType::from_str(&command) {
+                Ok(t) => {
+                    let transformation =
+                        TransformationBuilder::new().transformation(t).input(&input);
+
+                    let transformation = match transformation {
+                        Ok(t) => t.build(),
+                        Err(e) => {
+                            eprintln!("Could not create transformation object.");
+                            eprintln!("{}", e.to_string());
+                            continue;
+                        }
+                    };
+
+                    match tx.send(transformation) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Could not send transformation object to channel. Exiting.");
+                            eprintln!("{}", e.to_string());
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Command not found.");
+                    eprintln!("{}", e.to_string());
+                    continue;
+                }
+            }
+        });
+
+        let convert_handle = thread::spawn(move || loop {
+            let mut transformation = match rx.recv() {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Could not read from channel. Exiting.");
+                    eprintln!("{}", e.to_string());
+                    return;
+                }
+            };
+
+            let transformation_result = transformation.convert();
+            match Transformation::process_conversion_result(transformation_result) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Failed to process the conversion result.");
+                    eprintln!("{}", e.to_string());
+                    continue;
+                }
+            }
+        });
+
+        match input_handle.join() {
+            Ok(_) => {}
+            Err(_) => {
+                return Err("Failed to join thread.".into());
+            }
+        }
+
+        match convert_handle.join() {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Failed to join thread.".into()),
         }
     }
 
-    pub fn run(&self) -> Result<String, Box<dyn Error>> {
-        let mut input = self.get_input()?;
-        self.convert(&mut input)
-    }
-
-    fn get_input(&self) -> Result<TransformationInput, Box<dyn Error>> {
-        match self {
-            Transformation::Lowercase
-            | Transformation::Uppercase
-            | Transformation::NoSpaces
-            | Transformation::Slugify
-            | Transformation::Reverse
-            | Transformation::Sha256 => {
-                let mut input = String::new();
-
-                io::stdin().read_line(&mut input)?;
-
-                Ok(TransformationInput::StringInput(
-                    input
-                        .trim_end_matches("\r\n")
-                        .trim_end_matches('\n')
-                        .trim_end_matches('\r')
-                        .to_string(),
-                ))
+    pub fn convert(&mut self) -> Result<String, Box<dyn Error>> {
+        match (&self.transformation, &mut self.input) {
+            (TransformationType::Lowercase, TransformationInput::StringInput(input)) => {
+                to_lowercase(&input)
             }
-            Transformation::Csv => {
-                let reader = csv::ReaderBuilder::new().from_reader(io::stdin());
-                Ok(TransformationInput::CsvReaderInput(reader))
+            (TransformationType::Uppercase, TransformationInput::StringInput(input)) => {
+                to_uppercase(&input)
             }
-        }
-    }
-
-    fn convert(&self, input: &mut TransformationInput) -> Result<String, Box<dyn Error>> {
-        match (self, input) {
-            (Transformation::Lowercase, TransformationInput::StringInput(input)) => {
-                to_lowercase(input)
+            (TransformationType::NoSpaces, TransformationInput::StringInput(input)) => {
+                to_no_spaces(&input)
             }
-            (Transformation::Uppercase, TransformationInput::StringInput(input)) => {
-                to_uppercase(input)
+            (TransformationType::Slugify, TransformationInput::StringInput(input)) => {
+                to_slugify(&input)
             }
-            (Transformation::NoSpaces, TransformationInput::StringInput(input)) => {
-                to_no_spaces(input)
+            (TransformationType::Reverse, TransformationInput::StringInput(input)) => {
+                to_reverse(&input)
             }
-            (Transformation::Slugify, TransformationInput::StringInput(input)) => to_slugify(input),
-            (Transformation::Reverse, TransformationInput::StringInput(input)) => to_reverse(input),
-            (Transformation::Sha256, TransformationInput::StringInput(input)) => to_sha256(input),
-            (Transformation::Csv, TransformationInput::CsvReaderInput(input)) => {
+            (TransformationType::Sha256, TransformationInput::StringInput(input)) => {
+                to_sha256(&input)
+            }
+            (TransformationType::Csv, TransformationInput::CsvReaderInput(ref mut input)) => {
                 to_csv(input)
-                // to_csv_cli_table_crate(input)
+                // to_csv_cli_table_crate(&mut input)
             }
             (_, _) => Err(
-                "Internal error: invalid combination of Transformation and TransformationInput."
+                "Internal error: invalid combination of TransformationType and TransformationInput."
                     .into(),
             ),
         }
+    }
+
+    pub fn process_conversion_result(
+        transformation: Result<String, Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        match transformation {
+            Ok(o) => {
+                println!("{o}");
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return Err(e.into());
+            }
+        }
+
+        Ok(())
     }
 }
