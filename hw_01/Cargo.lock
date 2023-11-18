@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "hw_01_hello_world"
+name = "hw_01"
 version = "0.1.0"
