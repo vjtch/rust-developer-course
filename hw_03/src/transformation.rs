@@ -1,11 +1,11 @@
-use crate::libs::transformation::convertors::convertors::{
-    to_csv, to_csv_cli_table_crate, to_lowercase, to_no_spaces, to_reverse, to_sha256, to_slugify,
-    to_uppercase,
-};
 use std::error::Error;
 use std::io;
 
-mod convertors;
+#[allow(unused_imports)]
+use crate::convertors::{
+    to_csv, to_csv_cli_table_crate, to_lowercase, to_no_spaces, to_reverse, to_sha256, to_slugify,
+    to_uppercase,
+};
 
 pub enum Transformation {
     Lowercase,

@@ -1,7 +1,6 @@
-use crate::libs::transformation::Transformation;
 use std::{env, error::Error};
 
-mod libs;
+use hw_03::transformation::Transformation;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
