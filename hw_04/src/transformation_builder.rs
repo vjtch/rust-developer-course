@@ -1,10 +1,11 @@
+use std::error::Error;
+use std::io;
+use std::marker::PhantomData;
+
 use super::convertors::remove_new_line;
 use super::transformation::Transformation;
 use super::transformation_input::TransformationInput;
 use super::transformation_type::TransformationType;
-use std::error::Error;
-use std::io;
-use std::marker::PhantomData;
 
 pub enum Set {}
 

@@ -1,10 +1,11 @@
+use std::error::Error;
+use std::fmt::Write;
+use std::fs::File;
+
 use cli_table::TableStruct;
 use csv::StringRecord;
 use sha256::digest;
 use slug::slugify;
-use std::error::Error;
-use std::fmt::Write;
-use std::fs::File;
 use unicode_segmentation::UnicodeSegmentation;
 
 pub fn to_lowercase(string: &str) -> Result<String, Box<dyn Error>> {

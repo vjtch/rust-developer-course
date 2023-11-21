@@ -1,9 +1,11 @@
-use libs::transformation::Transformation;
-use libs::transformation_builder::TransformationBuilder;
-use libs::transformation_type::TransformationType;
-use std::{env, error::Error, str::FromStr};
+use std::env;
+use std::error::Error;
+use std::str::FromStr;
 
-mod libs;
+use hw_04::{
+    transformation::Transformation, transformation_builder::TransformationBuilder,
+    transformation_type::TransformationType,
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();

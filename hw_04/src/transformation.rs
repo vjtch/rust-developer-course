@@ -1,3 +1,8 @@
+use std::error::Error;
+use std::io;
+use std::str::FromStr;
+use std::thread;
+
 #[allow(unused_imports)]
 use super::convertors::{
     remove_new_line, to_csv, to_csv_cli_table_crate, to_lowercase, to_no_spaces, to_reverse,
@@ -6,9 +11,6 @@ use super::convertors::{
 use super::transformation_builder::TransformationBuilder;
 use super::transformation_input::TransformationInput;
 use super::transformation_type::TransformationType;
-use std::error::Error;
-use std::str::FromStr;
-use std::{io, thread};
 
 pub struct Transformation {
     pub transformation: TransformationType,
