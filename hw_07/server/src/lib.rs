@@ -1,24 +1,23 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    error::Error,
+    net::{SocketAddr, TcpListener, TcpStream},
+    sync::{Arc, Mutex},
+    thread::sleep,
+    time::Duration,
+};
 
 use bus::BusReader;
-use clap::Parser;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use tracing::{error, info};
 
-use libs::{read_message, send_message, Message, MessageType, UserInfo};
+use libs::{
+    message::{Message, MessageType, UserInfo},
+    receiver::MessageReceiver,
+    sender::MessageSender,
+};
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct Args {
-    #[arg(long, default_value_t = 11111)]
-    pub port: u16,
-
-    #[arg(long, default_value = "localhost")]
-    pub hostname: String,
-}
+pub mod args;
 
 pub struct User {
     pub tcp_stream: TcpStream,
@@ -50,6 +49,12 @@ pub fn handle_new_clients(
         let addr = match stream.peer_addr() {
             Ok(ok_socket_addr) => ok_socket_addr,
             Err(e) => {
+                let _ = MessageSender::from_tcp_stream(stream).send_message(&Message::from(
+                    MessageType::UnrecoverableError(
+                        "Internal error occured. Try to connect again.".to_string(),
+                    ),
+                ));
+
                 error!("Could not get socket address: {}", e);
                 continue;
             }
@@ -72,6 +77,12 @@ pub fn handle_new_clients(
                 );
             }
             Err(e) => {
+                let _ = MessageSender::from_tcp_stream(stream).send_message(&Message::from(
+                    MessageType::UnrecoverableError(
+                        "Internal error occured. Try to connect again.".to_string(),
+                    ),
+                ));
+
                 error!("Could not get access to clients list: {}", e);
                 continue;
             }
@@ -84,8 +95,19 @@ pub fn handle_connected_clients(
     mut rx: BusReader<bool>,
 ) {
     loop {
+        sleep(Duration::from_millis(100)); //0.1 sec
+
         // check broadcast channel signaling termination
         if let Ok(_) = rx.try_recv() {
+            if let Ok(mut clients) = clients.lock() {
+                clients.par_iter_mut().for_each(|(_, user)| {
+                    let _ = MessageSender::from_tcp_stream(user.tcp_stream.try_clone().unwrap())
+                        .send_message(&Message::from(MessageType::UnrecoverableError(
+                            "Server is stopped. Try connect later.".to_string(),
+                        )));
+                });
+            }
+
             info!("Stoped handling connected clients.");
             break;
         }
@@ -106,7 +128,10 @@ pub fn handle_connected_clients(
                 clients.par_iter_mut().for_each(|(addr, user)| {
                     let addr = addr.clone();
 
-                    match read_message(&mut user.tcp_stream) {
+                    let mut receiver =
+                        MessageReceiver::from_tcp_stream(user.tcp_stream.try_clone().unwrap());
+
+                    match receiver.receive_message() {
                         Ok(message) => {
                             if let Err(e) = match_message_type_and_do_actions(
                                 message,
@@ -153,7 +178,10 @@ pub fn handle_connected_clients(
                             continue;
                         }
 
-                        if let Err(e) = send_message(&mut user.tcp_stream, &message) {
+                        let mut sender =
+                            MessageSender::from_tcp_stream(user.tcp_stream.try_clone().unwrap());
+
+                        if let Err(e) = sender.send_message(&message) {
                             error!("Could not send message: {}", e);
                         }
                     }
@@ -174,6 +202,8 @@ fn match_message_type_and_do_actions(
     messages_to_send: Arc<Mutex<Vec<(SocketAddr, Message)>>>,
 ) -> Result<(), Box<dyn Error>> {
     let message_type = match message.message {
+        MessageType::UnrecoverableError(_) => message.message,
+        MessageType::RecoverableError(_) => message.message,
         MessageType::UserDisconnect() => {
             match clients_to_remove.lock() {
                 Ok(mut clients_to_remove) => {

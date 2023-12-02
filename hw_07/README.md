@@ -34,18 +34,16 @@
 
 ## Library
 
-- `SystemMessageType` was removed and now are all possible options of messages in `MessageType`
-- new structure `Message` was added. It contains `MessageType`, `UserInfo` and `SystemTime` (which is not used now). `UserInfo` contains user's name and color. Structure `Message` is now send between server and clients instead of `MessageType`
+- `lib.rs` code was splitted into multiple files
+- message reading and writing is newly done by `MessageSender` and `MessageReceiver`
+- `Message` structure contains `serialize` and `deserialize` methods
 
 ## Server
 
-- in `main.rs` is only `main` function. Other functions, structures and enums were moved to `lib.rs`
-- all errors and some useful informations are logged and printed to command line. For this functionality I used [tracing](https://crates.io/crates/tracing) and [tracing_subscriber](https://crates.io/crates/tracing-subscriber) crates
-- messages from connected clients are handles in multiple threads using [rayon](https://crates.io/crates/rayon) crate
+- `lib.rs` code was splitted into multiple files
+- sends error messages to clients in new `MessageType`s (`RecoverableError` or `UnrecoverableError`)
 
 ## Client
 
-- in `main.rs` is only `main` function. Other functions, structures and enums were moved to `lib.rs`
-- `FromStr` implementation for `CommandType` is newly done with [regex](https://crates.io/crates/regex) crate
-- user's can now choose color of their name and also whole chat is displayed in new screen in command line. Both features were done using [crossterm](https://crates.io/crates/crossterm) crate
-- when user receives image, it is printed to command line. Size of printed image is determined by window size. This was done using [viuer](https://crates.io/crates/viuer) crate
+- `lib.rs` code was splitted into multiple files
+- added handling of errors from server. If `MessageType` is `RecoverableError` client only prints error message and if there is `UnrecoverableError` client also stops (after pressing the enter key).

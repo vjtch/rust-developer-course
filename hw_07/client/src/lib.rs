@@ -1,105 +1,35 @@
-use std::error::Error;
-use std::fs::File;
-use std::io::{self, Cursor, Read, Write};
-use std::net::TcpStream;
-use std::path::Path;
-use std::str::FromStr;
-use std::time::SystemTime;
+use std::{
+    fs::File,
+    io::{self, Cursor, Read, Write},
+    path::Path,
+    str::FromStr,
+};
 
+use anyhow::Result;
 use chrono::Utc;
-use clap::Parser;
 use crossterm::{
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
 };
 use image::io::Reader;
-use regex::Regex;
 use viuer::Config;
 
-use libs::{read_message, send_message, Message, MessageType, UserInfo};
+use commands::CommandType;
+use errors::{ReceiveMessageError, SendMessageError};
+use libs::{
+    message::{Message, MessageType},
+    receiver::MessageReceiver,
+    sender::MessageSender,
+};
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct Args {
-    #[arg(long, default_value_t = 11111)]
-    pub port: u16,
+pub mod args;
+mod commands;
+pub mod errors;
 
-    #[arg(long, default_value = "localhost")]
-    pub hostname: String,
-
-    #[arg(long, default_value = "<anonymous user>")]
-    pub username: String,
-}
-
-#[derive(PartialEq)]
-enum CommandType {
-    File(String),
-    Image(String),
-    Text(String),
-    Quit,
-    Username(String),
-    Color((u8, u8, u8)),
-}
-
-impl FromStr for CommandType {
-    type Err = &'static str;
-
-    fn from_str(string: &str) -> Result<Self, Self::Err> {
-        // parse input from user by using regex. There are few options:
-        // - .file <filename>
-        // - .image <filename>
-        // - .username <new username>
-        // - .quit
-        // - .color <r> <g> <b>
-        // - <other text is send as message>
-        let re = Regex::new(r"((?<cmd>.file|.image|.username) (?<name>.+)|(?<quit>.quit)|(?<color>.color (?<r>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)) (?<g>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)) (?<b>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))|(?<text>.+))").unwrap();
-        let Some(caps) = re.captures(string) else {
-            return Err("Could not parse regex.");
-        };
-
-        match &caps.name("cmd") {
-            Some(cmd) => {
-                match cmd.as_str() {
-                    ".file" => {
-                        return Ok(CommandType::File(caps["name"].to_string()));
-                    }
-                    ".image" => {
-                        return Ok(CommandType::Image(caps["name"].to_string()));
-                    }
-                    ".username" => {
-                        return Ok(CommandType::Username(caps["name"].to_string()));
-                    }
-                    _ => {
-                        // this should never happen
-                    }
-                }
-            }
-            None => {}
-        }
-
-        match &caps.name("quit") {
-            Some(_) => {
-                return Ok(CommandType::Quit);
-            }
-            None => {}
-        }
-
-        match &caps.name("color") {
-            Some(_) => {
-                let r = u8::from_str_radix(&caps["r"], 10).unwrap();
-                let g = u8::from_str_radix(&caps["g"], 10).unwrap();
-                let b = u8::from_str_radix(&caps["b"], 10).unwrap();
-                return Ok(CommandType::Color((r, g, b)));
-            }
-            None => {}
-        }
-
-        // there should not be any other option
-        return Ok(CommandType::Text(caps["text"].to_string()));
-    }
-}
-
-pub fn handle_send_message(mut stream: TcpStream, input: &str) -> Result<bool, Box<dyn Error>> {
+pub fn handle_send_message(
+    sender: &mut MessageSender,
+    input: &str,
+) -> Result<bool, SendMessageError> {
     // create CommandType from String
     let command_type = CommandType::from_str(&input)?;
 
@@ -124,16 +54,26 @@ pub fn handle_send_message(mut stream: TcpStream, input: &str) -> Result<bool, B
                     let file_name = match Path::new(file_path.as_str()).file_name() {
                         Some(s) => match s.to_str() {
                             Some(s) => s.to_string(),
-                            None => return Err("Could convert file name to String.".into()),
+                            None => {
+                                return Err(SendMessageError::File(
+                                    "Could convert file name to String.".to_string(),
+                                ))
+                            }
                         },
-                        None => return Err("Could not parse file name.".into()),
+                        None => {
+                            return Err(SendMessageError::File(
+                                "Could not parse file name.".to_string(),
+                            ))
+                        }
                     };
 
                     MessageType::File(file_name, buffer_send)
                 }
                 CommandType::Image(_) => MessageType::Image(buffer_send),
                 _ => {
-                    return Err("This should never happen.".into());
+                    return Err(SendMessageError::Internal(
+                        "This should never happen.".to_string(),
+                    ));
                 }
             }
         }
@@ -153,17 +93,11 @@ pub fn handle_send_message(mut stream: TcpStream, input: &str) -> Result<bool, B
         CommandType::Color((r, g, b)) => MessageType::UserColorChange(r, g, b),
     };
 
-    // create message structure, user info is default because this informations fills only server
-    let message = Message {
-        message: message_type,
-        user_info: UserInfo {
-            ..Default::default()
-        },
-        datetime: SystemTime::now(),
-    };
+    // create message structure, user info and date time are default because this informations fills only server
+    let message = Message::from(message_type);
 
     // send message to server
-    send_message(&mut stream, &message)?;
+    sender.send_message(&message)?;
 
     // return true if quit command is performed
     if quit {
@@ -174,9 +108,9 @@ pub fn handle_send_message(mut stream: TcpStream, input: &str) -> Result<bool, B
     Ok(false)
 }
 
-pub fn handle_receive_message(mut stream: TcpStream) -> Result<(), Box<dyn Error>> {
+pub fn handle_receive_message(receiver: &mut MessageReceiver) -> Result<(), ReceiveMessageError> {
     // read message from server
-    let message = read_message(&mut stream)?;
+    let message = receiver.receive_message()?;
 
     // convert user's name color to Color enum
     let username_color = Color::Rgb {
@@ -271,12 +205,25 @@ pub fn handle_receive_message(mut stream: TcpStream) -> Result<(), Box<dyn Error
             print_colored_string_to_stdout("■", username_color)?;
             println!(".");
         }
+
+        // for MessageType::RecoverableError print error message
+        MessageType::RecoverableError(error) => {
+            print_colored_string_to_stdout(&error, Color::Red)?;
+            println!();
+        }
+
+        // for MessageType::UnrecoverableError print error message and return ClientError
+        MessageType::UnrecoverableError(error) => {
+            print_colored_string_to_stdout(&error, Color::Red)?;
+            println!();
+            return Err(ReceiveMessageError::Server);
+        }
     }
 
     Ok(())
 }
 
-fn print_colored_string_to_stdout(username: &str, color: Color) -> Result<(), std::io::Error> {
+pub fn print_colored_string_to_stdout(username: &str, color: Color) -> Result<(), std::io::Error> {
     // print string with set color and then reset color to the original
     execute!(
         io::stdout(),

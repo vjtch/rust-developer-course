@@ -1,19 +1,19 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use anyhow::Result;
 use bus::Bus;
 use clap::Parser;
 use tracing_subscriber;
 
 use libs::remove_new_line;
-use server::{handle_connected_clients, handle_new_clients, Args};
+use server::{args::Args, handle_connected_clients, handle_new_clients};
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     // turn on printing of logs to command line
     tracing_subscriber::fmt().pretty().init();
 
