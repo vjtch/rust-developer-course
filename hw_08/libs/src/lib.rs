@@ -1,6 +1,7 @@
 pub mod builder;
 pub mod errors;
 pub mod message;
+pub mod password;
 pub mod receiver;
 pub mod sender;
 

@@ -85,3 +85,61 @@ impl FromStr for CommandType {
         return Ok(CommandType::Text(caps["text"].to_string()));
     }
 }
+
+#[derive(PartialEq)]
+pub enum LogRegCommandType {
+    Login(String, String),
+    Register(String, String, String, u8, u8, u8),
+}
+
+impl FromStr for LogRegCommandType {
+    type Err = FromStrError;
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        // parse input from user by using regex. There are two options:
+        // - .login <username> <password>
+        // - .register <username> <password> <password> <r> <g> <b>
+
+        let regex_expr = r"(((?<login>\.login) (?<log_username>.+) (?<log_password>.+))|((?<register>\.register) (?<reg_username>.+) (?<reg_password>.+) (?<reg_repassword>.+) (?<r>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)) (?<g>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)) (?<b>(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))))";
+
+        let Ok(re) = Regex::new(regex_expr) else {
+            return Err(FromStrError::RegexCreate);
+        };
+
+        // this would be better to do by hand without regex. Then it would be possible to provide
+        // better error messages to users
+        let Some(caps) = re.captures(string) else {
+            return Err(FromStrError::RegexParse);
+        };
+
+        if caps.name("login").is_some() {
+            return Ok(LogRegCommandType::Login(
+                caps["log_username"].to_string(),
+                caps["log_password"].to_string(),
+            ));
+        }
+
+        if caps.name("register").is_some() {
+            let Ok(r) = u8::from_str_radix(&caps["r"], 10) else {
+                return Err(FromStrError::StringToNumber);
+            };
+            let Ok(g) = u8::from_str_radix(&caps["g"], 10) else {
+                return Err(FromStrError::StringToNumber);
+            };
+            let Ok(b) = u8::from_str_radix(&caps["b"], 10) else {
+                return Err(FromStrError::StringToNumber);
+            };
+
+            return Ok(LogRegCommandType::Register(
+                caps["reg_username"].to_string(),
+                caps["reg_password"].to_string(),
+                caps["reg_repassword"].to_string(),
+                r,
+                g,
+                b,
+            ));
+        }
+
+        Err(FromStrError::Internal("Invalid command.".to_string()))
+    }
+}

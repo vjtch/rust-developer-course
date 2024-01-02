@@ -23,7 +23,7 @@ use libs::{
 };
 
 pub mod args;
-mod commands;
+pub mod commands;
 pub mod errors;
 
 pub async fn handle_send_message(
@@ -220,17 +220,69 @@ pub async fn handle_receive_message(
             println!();
             return Err(ReceiveMessageError::Server);
         }
+
+        // for MessageType::LoginRequest nothing should be done, this message is only client -> server
+        MessageType::LoginRequest(..) => {}
+
+        // for MessageType::LoginResponse determine if login was successful and print message
+        MessageType::LoginResponse(success) => {
+            match success {
+                Some(_) => {
+                    print_colored_string_to_stdout("Login was successful.", Color::Green)?;
+                }
+                None => {
+                    print_colored_string_to_stdout("Login failed.", Color::Red)?;
+                }
+            }
+
+            println!();
+        }
+
+        // for MessageType::RegisterRequest nothing should be done, this message is only client -> server
+        MessageType::RegisterRequest(..) => {}
+
+        // for MessageType::LoginResponse determine if registration was successful and print message
+        MessageType::RegisterResponse(success) => {
+            match success {
+                Some(_) => {
+                    print_colored_string_to_stdout("Registration was successful.", Color::Green)?;
+                }
+                None => {
+                    print_colored_string_to_stdout("Registration failed.", Color::Red)?;
+                }
+            }
+
+            println!();
+        }
+
+        // for MessageType::OldMessagesRequest nothing should be done, this message is only client -> server
+        MessageType::OldMessagesRequest() => {}
+
+        // for MessageType::OldMessagesResponse print all old messages send by server
+        MessageType::OldMessagesResponse(messages) => {
+            for message in messages {
+                // convert user's name color to Color enum
+                let username_color = Color::Rgb {
+                    r: message.1.color.0,
+                    g: message.1.color.1,
+                    b: message.1.color.2,
+                };
+
+                print_colored_string_to_stdout(message.1.username.as_str(), username_color)?;
+                println!("> {}", message.0);
+            }
+        }
     }
 
     Ok(())
 }
 
-pub fn print_colored_string_to_stdout(username: &str, color: Color) -> Result<(), std::io::Error> {
+pub fn print_colored_string_to_stdout(string: &str, color: Color) -> Result<(), std::io::Error> {
     // print string with set color and then reset color to the original
     execute!(
         io::stdout(),
         SetForegroundColor(color),
-        Print(username),
+        Print(string),
         ResetColor
     )
 }

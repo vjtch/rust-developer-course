@@ -42,10 +42,17 @@ pub enum MessageType {
     UserColorChange(u8, u8, u8),
     RecoverableError(String),
     UnrecoverableError(String),
+    LoginRequest(String, String),
+    LoginResponse(Option<UserInfo>),
+    RegisterRequest(String, String, u8, u8, u8),
+    RegisterResponse(Option<UserInfo>),
+    OldMessagesRequest(),
+    OldMessagesResponse(Vec<(String, UserInfo)>),
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct UserInfo {
+    pub id: i32,
     pub username: String,
     pub color: (u8, u8, u8),
 }

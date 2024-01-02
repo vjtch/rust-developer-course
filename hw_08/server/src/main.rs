@@ -2,11 +2,14 @@ use std::{collections::HashMap, io, sync::Arc};
 
 use anyhow::Result;
 use clap::Parser;
-use tokio::{net::TcpListener, sync::broadcast, sync::Mutex};
+use tokio::{
+    net::TcpListener,
+    sync::{broadcast, mpsc, Mutex},
+};
 use tracing_subscriber;
 
 use libs::remove_new_line;
-use server::{args::Args, handle_new_clients};
+use server::{args::Args, handle_new_clients, handle_saving_messages_to_database};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,19 +28,36 @@ async fn main() -> Result<()> {
     // broadcast channel for notifying tasks that they should stop
     let (tx, _) = broadcast::channel(8);
 
+    // multiple produces and single consumer channel for sending messages to database handler
+    let (msg_db_tx, msg_db_rx) = mpsc::channel(64);
+
     // create tcp connection on specified address and port
     let tcp_listener = TcpListener::bind(server_address).await?;
 
     // task handle
-    let handle;
+    let mut handles = vec![];
+
+    // create task for saving text messages to database
+    {
+        handles.push(tokio::spawn(async move {
+            handle_saving_messages_to_database(msg_db_rx).await;
+        }));
+    }
 
     // create task for accepting new connections
     {
         let mut tx = tx.clone();
+        let mut msg_db_tx = msg_db_tx.clone();
 
-        handle = tokio::spawn(async move {
-            handle_new_clients(tcp_listener, &mut connected_clients, &mut tx).await;
-        });
+        handles.push(tokio::spawn(async move {
+            handle_new_clients(
+                tcp_listener,
+                &mut connected_clients,
+                &mut tx,
+                &mut msg_db_tx,
+            )
+            .await;
+        }));
     }
 
     // loop waiting for ".quit" input that terminates server
@@ -53,8 +73,10 @@ async fn main() -> Result<()> {
         }
     }
 
-    // wait until client handler ends
-    handle.await.unwrap();
+    // wait until all tasks are done
+    for handle in handles {
+        handle.await.unwrap();
+    }
 
     Ok(())
 }

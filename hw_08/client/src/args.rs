@@ -8,7 +8,4 @@ pub struct Args {
 
     #[arg(long, default_value = "localhost")]
     pub hostname: String,
-
-    #[arg(long, default_value = "<anonymous user>")]
-    pub username: String,
 }
