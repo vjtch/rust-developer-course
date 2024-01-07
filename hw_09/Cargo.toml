@@ -1,0 +1,3 @@
+[workspace]
+members = ["client", "database", "libs", "server"]
+resolver = "2"
